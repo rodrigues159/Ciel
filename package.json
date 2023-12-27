@@ -1,0 +1,23 @@
+{
+  "name": "ciel",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rodrigues159/Ciel.git"
+  },
+  "author": "anymore4u",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/rodrigues159/Ciel/issues"
+  },
+  "homepage": "https://github.com/rodrigues159/Ciel#readme",
+  "dependencies": {
+    "discord.js": "^13.17.1",
+    "dotenv": "^16.3.1"
+  }
+}
