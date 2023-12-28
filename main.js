@@ -1,19 +1,78 @@
 require('dotenv').config();
-const { Client, Intents } = require('discord.js');
+const fs = require('fs');
+const { Client, Intents, MessageEmbed, MessageActionRow, MessageButton, Modal, TextInputComponent } = require('discord.js');
 
 const client = new Client({
   intents: [
     Intents.FLAGS.GUILDS,
     Intents.FLAGS.GUILD_VOICE_STATES,
-    Intents.FLAGS.GUILD_MESSAGES, // Adiciona a intenção de ler mensagens
+    Intents.FLAGS.GUILD_MESSAGES,
+    Intents.FLAGS.GUILD_MESSAGE_REACTIONS
   ]
 });
 
-const canaisTemporarios = new Set();
-const criadoresDeCanais = new Map();
+let canaisTemporarios = new Set();
+let criadoresDeCanais;
 
-client.once('ready', () => {
+// Carregar dados dos canais no início
+try {
+  const dadosCarregados = JSON.parse(fs.readFileSync('dadosCanais.json', 'utf-8'));
+  criadoresDeCanais = new Map(dadosCarregados.canais);
+} catch (error) {
+  criadoresDeCanais = new Map();
+}
+
+function salvarDados() {
+  const dados = { canais: Array.from(criadoresDeCanais) };
+  fs.writeFileSync('dadosCanais.json', JSON.stringify(dados, null, 2));
+}
+
+// Função para criar a interface de botões
+function criarInterfaceDeBotao() {
+  const embed = new MessageEmbed()
+    .setColor('#0099ff')
+    .setTitle('Manas: Ciel - Interface')
+    .setDescription('Essa interface pode ser usada para gerenciar canais de voz temporários.')
+    .setImage('https://imgur.com/CdnlDoT.png') // Substitua pela URL da imagem que deseja usar
+    .setFooter('Pressione os botões abaixo para usar a interface');
+
+  const row = new MessageActionRow()
+    .addComponents(
+      new MessageButton()
+        .setLabel('')
+        .setEmoji('<:iconname:1189753859250331740> ')
+        .setCustomId('cname')
+        .setStyle('SECONDARY')
+      // Adicione mais botões conforme necessário
+    );
+  // Continuar adicionando rows e botões conforme necessário
+
+  return { embeds: [embed], components: [row] };
+}
+
+client.once('ready', async () => {
   console.log(`Logado como ${client.user.tag}!`);
+
+  const canalInterface = client.channels.cache.get(process.env.ID_CANAL_INTERFACE);
+
+  if (canalInterface) {
+    try {
+      // Buscar mensagens anteriores do bot no canal de interface
+      const messages = await canalInterface.messages.fetch({ limit: 100 });
+      const botMessages = messages.filter(m => m.author.id === client.user.id);
+
+      // Excluir todas as mensagens antigas do bot
+      for (const message of botMessages.values()) {
+        await message.delete();
+      }
+
+      // Enviar a nova interface
+      await canalInterface.send(criarInterfaceDeBotao());
+
+    } catch (error) {
+      console.error('Erro ao limpar o canal de interface ou ao enviar a nova mensagem:', error);
+    }
+  }
 });
 
 client.on('voiceStateUpdate', async (oldState, newState) => {
@@ -22,13 +81,24 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     const channelOptions = {
       type: 'GUILD_VOICE',
       parent: process.env.ID_CATEGORIA_CANAL_TEMPORARIO,
+      permissionOverwrites: [
+        {
+          id: newState.guild.id,
+          deny: ['MANAGE_CHANNELS'],
+        },
+        {
+          id: newState.member.user.id,
+          allow: ['MANAGE_CHANNELS'],
+        }
+      ],
     };
 
     try {
       const newChannel = await newState.guild.channels.create(channelName, channelOptions);
       console.log(`Canal criado: ${newChannel.name}`);
-      canaisTemporarios.add(newChannel.id); // Adiciona o ID do canal ao conjunto
-      criadoresDeCanais.set(newChannel.id, newState.member.user.id); // Armazena o criador do canal
+      canaisTemporarios.add(newChannel.id);
+      criadoresDeCanais.set(newChannel.id, newState.member.user.id);
+      salvarDados();
       await newState.setChannel(newChannel);
     } catch (error) {
       console.error('Erro ao criar o canal:', error);
@@ -40,27 +110,103 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     if (channel && channel.members.size === 0 && canaisTemporarios.has(channel.id)) {
       console.log(`Deletando canal vazio: ${channel.name}`);
       channel.delete().catch(console.error);
-      canaisTemporarios.delete(channel.id); // Remove o ID do canal do conjunto
-      criadoresDeCanais.delete(channel.id); // Remove o criador do canal do registro
+      canaisTemporarios.delete(channel.id);
+      criadoresDeCanais.delete(channel.id);
+      salvarDados();
     }
   }
 });
 
 client.on('messageCreate', async message => {
-  if (message.content.startsWith('!mudarnome') && message.member.voice.channel) {
-    const novoNome = message.content.split(' ')[1];
-    const channelId = message.member.voice.channel.id;
-
-    if (criadoresDeCanais.get(channelId) === message.author.id) {
-      // O usuário é o criador do canal, pode mudar o nome
-      message.member.voice.channel.setName(novoNome)
-        .then(updated => console.log(`Canal renomeado para ${updated.name}`))
-        .catch(console.error);
-    } else {
-      // O usuário não é o criador do canal
-      message.reply('Você não tem permissão para mudar o nome deste canal.');
+  // Verifique se a mensagem é um comando para mudar o nome do canal
+  if (message.content.startsWith('!mudarnome')) {
+    const memberVoiceChannel = message.member.voice.channel;
+    if (!memberVoiceChannel) {
+      return message.reply('Você precisa estar em um canal de voz para usar este comando.').then(msg => {
+        setTimeout(() => msg.delete(), 5000);
+      });
     }
+
+    if (!canaisTemporarios.has(memberVoiceChannel.id)) {
+      return message.reply('Este comando só pode ser usado em canais de voz temporários.').then(msg => {
+        setTimeout(() => msg.delete(), 5000);
+      });
+    }
+
+    if (criadoresDeCanais.get(memberVoiceChannel.id) !== message.author.id) {
+      return message.reply('Você não é o proprietário deste canal de voz temporário.').then(msg => {
+        setTimeout(() => msg.delete(), 5000);
+      });
+    }
+
+    const novoNome = message.content.split(' ').slice(1).join(' ');
+    if (!novoNome) {
+      return message.reply('Por favor, especifique um novo nome para o canal.').then(msg => {
+        setTimeout(() => msg.delete(), 5000);
+      });
+    }
+
+    try {
+      await memberVoiceChannel.setName(novoNome);
+      const reply = await message.reply(`O canal foi renomeado para: ${novoNome}`);
+      setTimeout(() => reply.delete(), 5000);
+    } catch (error) {
+      console.error('Erro ao renomear o canal:', error);
+      message.reply('Ocorreu um erro ao tentar renomear o canal.').then(msg => {
+        setTimeout(() => msg.delete(), 5000);
+      });
+    }
+
+    // Deletar a mensagem de comando do usuário após verificar as condições
+    message.delete().catch(console.error);
   }
+});
+
+client.on('interactionCreate', async (interaction) => {
+  const memberVoiceChannel = interaction.member.voice.channel;
+
+    if (interaction.isButton()) {
+        if (interaction.customId === 'cname') {
+            if (!memberVoiceChannel || !canaisTemporarios.has(memberVoiceChannel.id) || criadoresDeCanais.get(memberVoiceChannel.id) !== interaction.user.id) {
+                return interaction.reply({ content: 'Você não tem permissão para renomear este canal ou não está em um canal de voz temporário.', ephemeral: true });
+            }
+
+            const modal = new Modal()
+                .setCustomId('renameModal')
+                .setTitle('Renomear Canal de Voz')
+                .addComponents([
+                    new MessageActionRow().addComponents(
+                        new TextInputComponent()
+                            .setCustomId('newChannelName')
+                            .setLabel('Novo nome para o canal de voz')
+                            .setStyle('SHORT')
+                            .setPlaceholder(':Porvalope:')
+                            .setRequired(true),
+                    ),
+                ]);
+
+            await interaction.showModal(modal);
+        }
+    }
+  
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId === 'renameModal') {
+        const newChannelName = interaction.fields.getTextInputValue('newChannelName');
+        const memberVoiceChannel = interaction.member.voice.channel;
+  
+        if (!memberVoiceChannel || !canaisTemporarios.has(memberVoiceChannel.id) || criadoresDeCanais.get(memberVoiceChannel.id) !== interaction.user.id) {
+          return interaction.reply({ content: 'Você não tem permissão para renomear este canal ou não está em um canal de voz temporário.', ephemeral: true });
+        }
+  
+        try {
+          await memberVoiceChannel.setName(newChannelName);
+          await interaction.reply({ content: `O canal foi renomeado para: ${newChannelName}`, ephemeral: true });
+        } catch (error) {
+          console.error('Erro ao renomear o canal:', error);
+          await interaction.reply({ content: 'Houve um erro ao tentar renomear o canal.', ephemeral: true });
+        }
+      }
+    }
 });
 
 client.login(process.env.DISCORD_BOT_TOKEN);
