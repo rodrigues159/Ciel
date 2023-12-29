@@ -42,6 +42,11 @@ function criarInterfaceDeBotao() {
         .setLabel('')
         .setEmoji('<:iconname:1189753859250331740> ')
         .setCustomId('cname')
+        .setStyle('SECONDARY'),
+      new MessageButton()
+        .setCustomId(SetMaxMembers.getCustomId())
+        .setLabel('')
+        .setEmoji('<:limitMembers:1190116297166553088>')
         .setStyle('SECONDARY')
       // Adicione mais botões conforme necessário
     );
@@ -162,6 +167,8 @@ client.on('messageCreate', async message => {
   }
 });
 
+const SetMaxMembers = require('./commands/SetMaxMembers');
+
 client.on('interactionCreate', async (interaction) => {
   const memberVoiceChannel = interaction.member.voice.channel;
 
@@ -186,6 +193,13 @@ client.on('interactionCreate', async (interaction) => {
                 ]);
 
             await interaction.showModal(modal);
+        } else if (interaction.customId === SetMaxMembers.getCustomId()) {
+          if (!memberVoiceChannel || !canaisTemporarios.has(memberVoiceChannel.id) || criadoresDeCanais.get(memberVoiceChannel.id) !== interaction.user.id) {
+            return interaction.reply({ content: 'Você não tem permissão para renomear este canal ou não está em um canal de voz temporário.', ephemeral: true });
+          }
+
+          await interaction.showModal(SetMaxMembers.createModal());
+
         }
     }
   
@@ -204,6 +218,34 @@ client.on('interactionCreate', async (interaction) => {
         } catch (error) {
           console.error('Erro ao renomear o canal:', error);
           await interaction.reply({ content: 'Houve um erro ao tentar renomear o canal.', ephemeral: true });
+        }
+      } else if (interaction.customId === SetMaxMembers.getCustomId()) {
+        const maxMembers = interaction.fields.getTextInputValue('maxMembers');
+        const memberVoiceChannel = interaction.member.voice.channel;
+      
+        if (!memberVoiceChannel) {
+          return interaction.reply({ content: 'Você precisa estar em um canal de voz para usar este comando.', ephemeral: true });
+        }
+      
+        if (!canaisTemporarios.has(memberVoiceChannel.id)) {
+          return interaction.reply({ content: 'Este comando só pode ser usado em canais de voz temporários.', ephemeral: true });
+        }
+      
+        if (criadoresDeCanais.get(memberVoiceChannel.id) !== interaction.user.id) {
+          return interaction.reply({ content: 'Você não é o proprietário deste canal de voz temporário.', ephemeral: true });
+        }
+      
+        try {
+          const userLimit = parseInt(maxMembers, 10);
+          if (isNaN(userLimit) || userLimit < 0) {
+            return interaction.reply({ content: 'Por favor, forneça um número válido.', ephemeral: true });
+          }
+      
+          await memberVoiceChannel.setUserLimit(userLimit);
+          await interaction.reply({ content: `O limite máximo de membros foi definido para: ${userLimit}`, ephemeral: true });
+        } catch (error) {
+          console.error('Erro ao definir o limite de membros:', error);
+          await interaction.reply({ content: 'Houve um erro ao tentar definir o limite de membros.', ephemeral: true });
         }
       }
     }
