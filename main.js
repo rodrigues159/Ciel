@@ -347,9 +347,7 @@ client.on('interactionCreate', async (interaction) => {
             });
           }
           break;
-        
-        // ... outros casos
-        
+                
       default:
         await interaction.reply({ content: 'Opção de privacidade não reconhecida.', ephemeral: true });
 
